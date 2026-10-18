@@ -78,6 +78,29 @@ public class TermuxFloatView extends LinearLayout {
 
     private static final String LOG_TAG = "TermuxFloatView";
 
+    // ===== Código adicionado: drag e resize manual =====
+    private View titleBar;
+    private View resizeHandleSE;
+    private View resizeHandleE;
+    private View resizeHandleS;
+    private View terminalContainer;
+
+    private boolean isDragging = false;
+    private boolean isResizing = false;
+
+    private int dragStartX;
+    private int dragStartY;
+    private int dragInitialX;
+    private int dragInitialY;
+    private int resizeStartWidth;
+    private int resizeStartHeight;
+    private float resizeStartRawX;
+    private float resizeStartRawY;
+
+    private static final int MIN_WINDOW_WIDTH = 200;
+    private static final int MIN_WINDOW_HEIGHT = 120;
+    // ===== Fim do código adicionado =====
+
     final ScaleGestureDetector mScaleDetector = new ScaleGestureDetector(getContext(), new OnScaleGestureListener() {
         private static final int MIN_SIZE = 50;
 
@@ -143,10 +166,12 @@ public class TermuxFloatView extends LinearLayout {
 
         mFloatingBubbleManager = new FloatingBubbleManager(this);
         initWindowControls();
+        initDragAndResize();
     }
 
     private void initWindowControls() {
-        mWindowControls = findViewById(R.id.window_controls);
+        // Antes era R.id.window_controls; no XML novo esse elemento se chama title_bar
+        mWindowControls = findViewById(R.id.title_bar);
         mWindowControls.setOnClickListener(v -> changeFocus(true));
 
         Button minimizeButton = findViewById(R.id.minimize_button);
@@ -155,6 +180,85 @@ public class TermuxFloatView extends LinearLayout {
         Button exitButton = findViewById(R.id.exit_button);
         exitButton.setOnClickListener(v -> exit());
     }
+
+    // ===== Código adicionado: drag e resize manual =====
+    private void initDragAndResize() {
+        titleBar = findViewById(R.id.title_bar);
+        resizeHandleSE = findViewById(R.id.resize_handle_se);
+        resizeHandleE = findViewById(R.id.resize_handle_e);
+        resizeHandleS = findViewById(R.id.resize_handle_s);
+        terminalContainer = findViewById(R.id.terminal_container);
+
+        titleBar.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    isDragging = true;
+                    dragStartX = (int) event.getRawX();
+                    dragStartY = (int) event.getRawY();
+                    dragInitialX = layoutParams.x;
+                    dragInitialY = layoutParams.y;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (isDragging) {
+                        int deltaX = (int) event.getRawX() - dragStartX;
+                        int deltaY = (int) event.getRawY() - dragStartY;
+                        layoutParams.x = Math.min(DISPLAY_WIDTH - layoutParams.width, Math.max(0, dragInitialX + deltaX));
+                        layoutParams.y = Math.min(DISPLAY_HEIGHT - layoutParams.height, Math.max(0, dragInitialY + deltaY));
+                        mWindowManager.updateViewLayout(TermuxFloatView.this, layoutParams);
+                        if (mPreferences != null) {
+                            mPreferences.setWindowX(layoutParams.x);
+                            mPreferences.setWindowY(layoutParams.y);
+                        }
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    isDragging = false;
+                    return true;
+            }
+            return false;
+        });
+
+        resizeHandleSE.setOnTouchListener((v, event) -> handleResizeTouch(event, true, true));
+        resizeHandleE.setOnTouchListener((v, event) -> handleResizeTouch(event, true, false));
+        resizeHandleS.setOnTouchListener((v, event) -> handleResizeTouch(event, false, true));
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private boolean handleResizeTouch(MotionEvent event, boolean resizeWidth, boolean resizeHeight) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                isResizing = true;
+                resizeStartRawX = event.getRawX();
+                resizeStartRawY = event.getRawY();
+                resizeStartWidth = layoutParams.width;
+                resizeStartHeight = layoutParams.height;
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (isResizing) {
+                    if (resizeWidth) {
+                        int newWidth = resizeStartWidth + (int) (event.getRawX() - resizeStartRawX);
+                        layoutParams.width = Math.max(MIN_WINDOW_WIDTH, Math.min(newWidth, DISPLAY_WIDTH - layoutParams.x));
+                    }
+                    if (resizeHeight) {
+                        int newHeight = resizeStartHeight + (int) (event.getRawY() - resizeStartRawY);
+                        layoutParams.height = Math.max(MIN_WINDOW_HEIGHT, Math.min(newHeight, DISPLAY_HEIGHT - layoutParams.y));
+                    }
+                    mWindowManager.updateViewLayout(TermuxFloatView.this, layoutParams);
+                    if (mPreferences != null) {
+                        mPreferences.setWindowWidth(layoutParams.width);
+                        mPreferences.setWindowHeight(layoutParams.height);
+                    }
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                isResizing = false;
+                return true;
+        }
+        return false;
+    }
+    // ===== Fim do código adicionado =====
 
     @Override
     protected void onAttachedToWindow() {
